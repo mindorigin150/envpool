@@ -86,9 +86,10 @@ class VizdoomEnvFns {
     DoomGame dg;
     dg.loadConfig(conf["cfg_path"_]);
     return MakeDict(
-        "obs"_.Bind(Spec<uint8_t>({conf["stack_num"_] * dg.getScreenChannels(),
-                                   conf["img_height"_], conf["img_width"_]},
-                                  {0, 255})),
+        "obs"_.Bind(Spec<uint8_t>(
+            std::vector<int>{conf["stack_num"_] * dg.getScreenChannels(),
+                             conf["img_height"_], conf["img_width"_]},
+            std::tuple<uint8_t, uint8_t>{0, 255})),
         "info:AMMO2"_.Bind(Spec<double>({-1})),
         "info:AMMO3"_.Bind(Spec<double>({-1})),
         "info:AMMO4"_.Bind(Spec<double>({-1})),
@@ -125,8 +126,9 @@ class VizdoomEnvFns {
     }
     auto action_set =
         BuildActionSet(button_list, conf["force_speed"_], delta_config);
-    return MakeDict(
-        "action"_.Bind(Spec<double>({-1}, {0.0, action_set.size() - 1.0})));
+    return MakeDict("action"_.Bind(Spec<double>(
+        std::vector<int>{-1},
+        std::tuple<double, double>{0.0, action_set.size() - 1.0})));
   }
 };
 
@@ -457,7 +459,7 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
   }
 
   void WriteState(float reward) {
-    State state = Allocate();
+    State state = this->Allocate();
     auto state_array = state.AllValues<Array>();
     state["reward"_] = reward;
     for (int i = 0; i < stack_num_; ++i) {
