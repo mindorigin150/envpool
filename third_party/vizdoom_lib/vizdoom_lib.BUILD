@@ -7,8 +7,8 @@ template_rule(
     src = "src/lib/ViZDoomVersion.h.in",
     out = "ViZDoomVersion.h",
     substitutions = {
-        "@ViZDoom_VERSION_ID@": "1113",
-        "@ViZDoom_VERSION_STR@": "1.1.13",
+        "@ViZDoom_VERSION_ID@": "130",
+        "@ViZDoom_VERSION_STR@": "1.3.0",
     },
 )
 
@@ -20,7 +20,11 @@ cc_library(
         "src/lib/*.cpp",
         "src/lib/boost/**/*.hpp",
     ]) + [":vizdoom_version"],
-    hdrs = ["include/ViZDoom.h"],
+    hdrs = glob([
+        "include/*.h",
+        "src/vizdoom/src/**/*.h",
+        "src/vizdoom/src/**/*.hpp",
+    ]),
     includes = [
         "include",
         "src/lib",

@@ -292,11 +292,10 @@ def workspace():
     maybe(
         http_archive,
         name = "vizdoom",
-        sha256 = "e379a242ada7e1028b7a635da672b0936d99da3702781b76a4400b83602d78c4",
-        strip_prefix = "ViZDoom-1.1.13/src/vizdoom/",
+        sha256 = "76ddf186d7f093ef85cbcb0e7e387757d60e45190eb5da6d075aab31ffc316ed",
+        strip_prefix = "ViZDoom-1.3.0/src/vizdoom/",
         urls = [
-            "https://github.com/Farama-Foundation/ViZDoom/archive/refs/tags/1.1.13.tar.gz",
-            "https://ml.cs.tsinghua.edu.cn/~jiayi/envpool/Farama-Foundation/ViZDoom/1.1.13.tar.gz",
+            "https://github.com/Farama-Foundation/ViZDoom/archive/refs/tags/1.3.0.tar.gz",
         ],
         build_file = "//third_party/vizdoom:vizdoom.BUILD",
         patches = [
@@ -307,11 +306,10 @@ def workspace():
     maybe(
         http_archive,
         name = "vizdoom_lib",
-        sha256 = "e379a242ada7e1028b7a635da672b0936d99da3702781b76a4400b83602d78c4",
-        strip_prefix = "ViZDoom-1.1.13/",
+        sha256 = "76ddf186d7f093ef85cbcb0e7e387757d60e45190eb5da6d075aab31ffc316ed",
+        strip_prefix = "ViZDoom-1.3.0/",
         urls = [
-            "https://github.com/Farama-Foundation/ViZDoom/archive/refs/tags/1.1.13.tar.gz",
-            "https://ml.cs.tsinghua.edu.cn/~jiayi/envpool/Farama-Foundation/ViZDoom/1.1.13.tar.gz",
+            "https://github.com/Farama-Foundation/ViZDoom/archive/refs/tags/1.3.0.tar.gz",
         ],
         build_file = "//third_party/vizdoom_lib:vizdoom_lib.BUILD",
     )

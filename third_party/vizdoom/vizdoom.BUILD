@@ -90,8 +90,8 @@ template_rule(
     src = "src/viz_version.h.in",
     out = "viz_version.h",
     substitutions = {
-        "@ViZDoom_VERSION_ID@": "1113",
-        "@ViZDoom_VERSION_STR@": "1.1.13",
+        "@ViZDoom_VERSION_ID@": "130",
+        "@ViZDoom_VERSION_STR@": "1.3.0",
     },
 )
 
@@ -388,7 +388,6 @@ cc_binary(
         "src/__autostart.cpp",
         "src/actorptrselect.cpp",
         "src/am_map.cpp",
-        "src/asm_x86_64/tmap3.s",
         "src/b_bot.cpp",
         "src/b_func.cpp",
         "src/b_game.cpp",
@@ -520,7 +519,6 @@ cc_binary(
         "src/name.cpp",
         "src/nodebuild.cpp",
         "src/nodebuild_classify_nosse2.cpp",
-        "src/nodebuild_classify_sse2.cpp",
         "src/nodebuild_events.cpp",
         "src/nodebuild_extract.cpp",
         "src/nodebuild_gl.cpp",

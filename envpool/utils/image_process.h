@@ -31,7 +31,7 @@ void Resize(const Array& src, Array* tgt, bool use_inter_area = true) {
   if (use_inter_area) {
     cv::resize(src_img, tgt_img, tgt_img.size(), 0, 0, cv::INTER_AREA);
   } else {
-    cv::resize(src_img, tgt_img, tgt_img.size());
+    cv::resize(src_img, tgt_img, tgt_img.size(), 0, 0, cv::INTER_NEAREST);
   }
 }
 

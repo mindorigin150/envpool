@@ -48,6 +48,8 @@ class VizdoomEnvFns {
         "frame_skip"_.Bind(4), "lmp_save_dir"_.Bind(std::string("")),
         "episodic_life"_.Bind(false), "force_speed"_.Bind(false),
         "use_combined_action"_.Bind(false), "use_inter_area_resize"_.Bind(true),
+        "use_native_reward"_.Bind(false),
+        "preserve_config_screen_resolution"_.Bind(false),
         "weapon_duration"_.Bind(5),
         "reward_config"_.Bind(std::map<std::string, std::tuple<float, float>>(
             {{"FRAGCOUNT", {1, -1.5}},         {"KILLCOUNT", {1, 0}},
@@ -139,13 +141,15 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
   //  "DAMAGECOUNT", "DEATHCOUNT", "FRAGCOUNT", "HEALTH", "HITCOUNT",
   //  "KILLCOUNT", "SELECTED_WEAPON", "SELECTED_WEAPON_AMMO", "USER2"});
   std::unique_ptr<DoomGame> dg_;
-  Array raw_buf_;
+  Array raw_buf_, native_buf_;
   std::deque<Array> stack_buf_;
   std::string lmp_dir_;
-  bool save_lmp_, episodic_life_, use_combined_action_, use_inter_area_resize_;
+  bool save_lmp_, episodic_life_, use_combined_action_, use_inter_area_resize_,
+      use_native_reward_, preserve_config_screen_resolution_,
+      resize_screen_buffer_;
   bool done_{true};
   int max_episode_steps_, elapsed_step_, stack_num_, frame_skip_,
-      episode_count_{0}, channel_;
+      episode_count_{0}, channel_, native_screen_width_, native_screen_height_;
   int deathcount_idx_, hitcount_idx_, damagecount_idx_;  // bugged var
   double last_deathcount_{0}, last_hitcount_{0}, last_damagecount_{0};
   int selected_weapon_, selected_weapon_count_, weapon_duration_;
@@ -165,6 +169,9 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
         episodic_life_(spec.config["episodic_life"_]),
         use_combined_action_(spec.config["use_combined_action"_]),
         use_inter_area_resize_(spec.config["use_inter_area_resize"_]),
+        use_native_reward_(spec.config["use_native_reward"_]),
+        preserve_config_screen_resolution_(
+            spec.config["preserve_config_screen_resolution"_]),
         max_episode_steps_(spec.config["max_episode_steps"_]),
         elapsed_step_(max_episode_steps_ + 1),
         stack_num_(spec.config["stack_num"_]),
@@ -180,6 +187,11 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
     dg_->setDoomGamePath(
         MergePath(spec.config["base_path"_], spec.config["iwad_path"_]));
     dg_->loadConfig(spec.config["cfg_path"_]);
+    native_screen_width_ = dg_->getScreenWidth();
+    native_screen_height_ = dg_->getScreenHeight();
+    if (!preserve_config_screen_resolution_ && native_screen_width_ < 320) {
+      dg_->setScreenResolution(RES_320X240);
+    }
     dg_->setWindowVisible(false);
     dg_->addGameArgs(spec.config["game_args"_]);
     dg_->setMode(PLAYER);
@@ -193,6 +205,10 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
     channel_ = dg_->getScreenChannels();
     raw_buf_ =
         Array(FrameSpec({dg_->getScreenHeight(), dg_->getScreenWidth(), 1}));
+    native_buf_ =
+        Array(FrameSpec({native_screen_height_, native_screen_width_, 1}));
+    resize_screen_buffer_ = native_screen_width_ != dg_->getScreenWidth() ||
+                            native_screen_height_ != dg_->getScreenHeight();
     for (int i = 0; i < stack_num_; ++i) {
       stack_buf_.emplace_back(Array(FrameSpec(
           {channel_, spec.config["img_height"_], spec.config["img_width"_]})));
@@ -294,24 +310,40 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
 
   void Step(const Action& action) override {
     double* ptr = static_cast<double*>(action["action"_].Data());
-    if (use_combined_action_) {
-      dg_->setAction(action_set_[static_cast<int>(ptr[0])]);
+    float native_reward = 0.0;
+    if (use_native_reward_) {
+      if (use_combined_action_) {
+        native_reward =
+            static_cast<float>(dg_->makeAction(action_set_[static_cast<int>(ptr[0])],
+                                               frame_skip_));
+      } else {
+        native_reward = static_cast<float>(dg_->makeAction(
+            std::vector<double>(ptr, ptr + button_list_.size()), frame_skip_));
+      }
     } else {
-      dg_->setAction(std::vector<double>(ptr, ptr + button_list_.size()));
+      if (use_combined_action_) {
+        dg_->setAction(action_set_[static_cast<int>(ptr[0])]);
+      } else {
+        dg_->setAction(std::vector<double>(ptr, ptr + button_list_.size()));
+      }
+      dg_->advanceAction(frame_skip_, true);
     }
-    dg_->advanceAction(frame_skip_, true);
     ++elapsed_step_;
     done_ = (dg_->isEpisodeFinished() || (elapsed_step_ >= max_episode_steps_));
     if (episodic_life_ && dg_->isPlayerDead()) {
       done_ = true;
     }
-    GetState(false);
+    GetState(false, native_reward);
   }
 
-  void GetState(bool is_reset) {
+  void GetState(bool is_reset, float native_reward = 0.0) {
     GameStatePtr gamestate = dg_->getState();
     if (gamestate == nullptr) {  // finish episode
-      WriteState(0.0);
+      Array tgt = std::move(*stack_buf_.begin());
+      stack_buf_.pop_front();
+      std::memset(static_cast<uint8_t*>(tgt.Data()), 0, tgt.size);
+      stack_buf_.emplace_back(tgt);
+      WriteState(use_native_reward_ ? native_reward : 0.0);
       return;
     }
 
@@ -404,8 +436,12 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
     for (int c = 0; c < channel_; ++c) {
       // gamestate->screenBuffer is channel-first image
       std::memcpy(raw_ptr, gamestate->screenBuffer->data() + c * size, size);
+      Array& screen = resize_screen_buffer_ ? native_buf_ : raw_buf_;
+      if (resize_screen_buffer_) {
+        Resize(raw_buf_, &native_buf_, use_inter_area_resize_);
+      }
       auto slice = tgt[c];
-      Resize(raw_buf_, &slice, use_inter_area_resize_);
+      Resize(screen, &slice, use_inter_area_resize_);
     }
     size = tgt.size;
     stack_buf_.emplace_back(tgt);
@@ -417,7 +453,7 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
         }
       }
     }
-    WriteState(reward);
+    WriteState(use_native_reward_ ? native_reward : reward);
   }
 
   void WriteState(float reward) {
