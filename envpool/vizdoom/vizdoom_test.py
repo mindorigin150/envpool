@@ -20,7 +20,7 @@ import numpy as np
 from absl.testing import absltest
 
 import envpool.vizdoom.registration  # noqa: F401
-from envpool.registration import make_dm, make_gym
+from envpool.registration import make_dm, make_gym, make_gymnasium
 
 
 class _VizdoomEnvPoolBasicTest(absltest.TestCase):
@@ -147,6 +147,27 @@ class _VizdoomEnvPoolBasicTest(absltest.TestCase):
     e.reset()
     assert e.step(np.array([0]),
                   np.array([0])).observation.obs.shape[1] == 1 * 4
+
+  def test_terminal_step_auto_reset(self) -> None:
+    env = make_gymnasium(
+      "D1Basic-v1",
+      num_envs=1,
+      batch_size=1,
+      max_episode_steps=1,
+      use_combined_action=True,
+    )
+    obs, _ = env.reset()
+    action = np.zeros(1, dtype=int)
+
+    _, _, terminated, truncated, info = env.step(action)
+    done = np.logical_or(terminated, truncated)
+    assert bool(done[0])
+    np.testing.assert_equal(info["terminal_reset_obs"].shape, obs.shape)
+    assert np.any(info["terminal_reset_obs"][0] != 0)
+
+    _, _, next_terminated, next_truncated, next_info = env.step(action)
+    next_done = np.logical_or(next_terminated, next_truncated)
+    assert bool(next_done[0])
 
 
 if __name__ == "__main__":

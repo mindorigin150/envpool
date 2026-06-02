@@ -90,6 +90,10 @@ class VizdoomEnvFns {
             std::vector<int>{conf["stack_num"_] * dg.getScreenChannels(),
                              conf["img_height"_], conf["img_width"_]},
             std::tuple<uint8_t, uint8_t>{0, 255})),
+        "info:terminal_reset_obs"_.Bind(Spec<uint8_t>(
+            std::vector<int>{conf["stack_num"_] * dg.getScreenChannels(),
+                             conf["img_height"_], conf["img_width"_]},
+            std::tuple<uint8_t, uint8_t>{0, 255})),
         "info:AMMO2"_.Bind(Spec<double>({-1})),
         "info:AMMO3"_.Bind(Spec<double>({-1})),
         "info:AMMO4"_.Bind(Spec<double>({-1})),
@@ -292,22 +296,11 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
   bool IsDone() override { return done_; }
 
   void Reset() override {
-    if (dg_->isEpisodeFinished() || elapsed_step_ >= max_episode_steps_) {
-      elapsed_step_ = 0;
-      if (episode_count_ > 0) {  // NewEpisode at beginning may hang on MAEnv
-        if (save_lmp_) {
-          dg_->newEpisode(lmp_dir_ + std::to_string(episode_count_) + ".lmp");
-        } else {
-          dg_->newEpisode();
-        }
-      }
-    } else {
-      ++elapsed_step_;
-      dg_->makeAction(action_set_[0], frame_skip_);
-    }
+    BeginResetTransition();
     done_ = false;
     ++episode_count_;
-    GetState(true);
+    float reward = GetState(true);
+    WriteState(reward, nullptr);
   }
 
   void Step(const Action& action) override {
@@ -335,18 +328,25 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
     if (episodic_life_ && dg_->isPlayerDead()) {
       done_ = true;
     }
-    GetState(false, native_reward);
+    float reward = GetState(false, native_reward);
+    State state = WriteState(reward, nullptr);
+    if (done_) {
+      BeginResetTransition();
+      done_ = false;
+      ++episode_count_;
+      GetState(true);
+      WriteTerminalResetObs(state);
+    }
   }
 
-  void GetState(bool is_reset, float native_reward = 0.0) {
+  float GetState(bool is_reset, float native_reward = 0.0) {
     GameStatePtr gamestate = dg_->getState();
     if (gamestate == nullptr) {  // finish episode
       Array tgt = std::move(*stack_buf_.begin());
       stack_buf_.pop_front();
       std::memset(static_cast<uint8_t*>(tgt.Data()), 0, tgt.size);
       stack_buf_.emplace_back(tgt);
-      WriteState(use_native_reward_ ? native_reward : 0.0);
-      return;
+      return use_native_reward_ ? native_reward : 0.0;
     }
 
     // game variables and reward
@@ -455,10 +455,10 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
         }
       }
     }
-    WriteState(use_native_reward_ ? native_reward : reward);
+    return use_native_reward_ ? native_reward : reward;
   }
 
-  void WriteState(float reward) {
+  State WriteState(float reward, const uint8_t* terminal_reset_obs) {
     State state = this->Allocate();
     auto state_array = state.AllValues<Array>();
     state["reward"_] = reward;
@@ -466,6 +466,15 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
       state["obs"_]
           .Slice(i * channel_, (i + 1) * channel_)
           .Assign(stack_buf_[i]);
+    }
+    auto terminal_reset_state = state["info:terminal_reset_obs"_];
+    if (terminal_reset_obs == nullptr) {
+      std::memset(
+          static_cast<uint8_t*>(terminal_reset_state.Data()), 0,
+          terminal_reset_state.size);
+    } else {
+      std::memcpy(static_cast<uint8_t*>(terminal_reset_state.Data()),
+                  terminal_reset_obs, terminal_reset_state.size);
     }
     // info
     double zero = 0.0;
@@ -476,6 +485,33 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
       } else {
         state_array[i + offset][0] = zero;
       }
+    }
+    return state;
+  }
+
+  void WriteTerminalResetObs(State& state) {
+    auto terminal_reset_state = state["info:terminal_reset_obs"_];
+    auto* ptr = static_cast<uint8_t*>(terminal_reset_state.Data());
+    for (int i = 0; i < stack_num_; ++i) {
+      std::memcpy(ptr + i * stack_buf_[i].size,
+                  static_cast<uint8_t*>(stack_buf_[i].Data()),
+                  stack_buf_[i].size);
+    }
+  }
+
+  void BeginResetTransition() {
+    if (dg_->isEpisodeFinished() || elapsed_step_ >= max_episode_steps_) {
+      elapsed_step_ = 0;
+      if (episode_count_ > 0) {  // NewEpisode at beginning may hang on MAEnv
+        if (save_lmp_) {
+          dg_->newEpisode(lmp_dir_ + std::to_string(episode_count_) + ".lmp");
+        } else {
+          dg_->newEpisode();
+        }
+      }
+    } else {
+      ++elapsed_step_;
+      dg_->makeAction(action_set_[0], frame_skip_);
     }
   }
 };
