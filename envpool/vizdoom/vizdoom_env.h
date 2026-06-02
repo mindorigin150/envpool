@@ -90,10 +90,6 @@ class VizdoomEnvFns {
             std::vector<int>{conf["stack_num"_] * dg.getScreenChannels(),
                              conf["img_height"_], conf["img_width"_]},
             std::tuple<uint8_t, uint8_t>{0, 255})),
-        "info:terminal_reset_obs"_.Bind(Spec<uint8_t>(
-            std::vector<int>{conf["stack_num"_] * dg.getScreenChannels(),
-                             conf["img_height"_], conf["img_width"_]},
-            std::tuple<uint8_t, uint8_t>{0, 255})),
         "info:AMMO2"_.Bind(Spec<double>({-1})),
         "info:AMMO3"_.Bind(Spec<double>({-1})),
         "info:AMMO4"_.Bind(Spec<double>({-1})),
@@ -147,7 +143,7 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
   //  "DAMAGECOUNT", "DEATHCOUNT", "FRAGCOUNT", "HEALTH", "HITCOUNT",
   //  "KILLCOUNT", "SELECTED_WEAPON", "SELECTED_WEAPON_AMMO", "USER2"});
   std::unique_ptr<DoomGame> dg_;
-  Array raw_buf_, native_buf_;
+  Array raw_buf_, native_buf_, terminal_reset_obs_;
   std::deque<Array> stack_buf_;
   std::string lmp_dir_;
   bool save_lmp_, episodic_life_, use_combined_action_, use_inter_area_resize_,
@@ -219,6 +215,9 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
       stack_buf_.emplace_back(Array(FrameSpec(
           {channel_, spec.config["img_height"_], spec.config["img_width"_]})));
     }
+    terminal_reset_obs_ = Array(FrameSpec(
+        {stack_num_ * channel_, spec.config["img_height"_],
+         spec.config["img_width"_]}));
     for (auto i : info_index_) {
       dg_->addAvailableGameVariable(static_cast<GameVariable>(i));
     }
@@ -300,7 +299,7 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
     done_ = false;
     ++episode_count_;
     float reward = GetState(true);
-    WriteState(reward, nullptr);
+    WriteState(reward);
   }
 
   void Step(const Action& action) override {
@@ -329,13 +328,13 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
       done_ = true;
     }
     float reward = GetState(false, native_reward);
-    State state = WriteState(reward, nullptr);
+    WriteState(reward);
     if (done_) {
       BeginResetTransition();
       done_ = false;
       ++episode_count_;
       GetState(true);
-      WriteTerminalResetObs(state);
+      WriteTerminalResetObs();
     }
   }
 
@@ -458,7 +457,7 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
     return use_native_reward_ ? native_reward : reward;
   }
 
-  State WriteState(float reward, const uint8_t* terminal_reset_obs) {
+  State WriteState(float reward) {
     State state = this->Allocate();
     auto state_array = state.AllValues<Array>();
     state["reward"_] = reward;
@@ -466,15 +465,6 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
       state["obs"_]
           .Slice(i * channel_, (i + 1) * channel_)
           .Assign(stack_buf_[i]);
-    }
-    auto terminal_reset_state = state["info:terminal_reset_obs"_];
-    if (terminal_reset_obs == nullptr) {
-      std::memset(
-          static_cast<uint8_t*>(terminal_reset_state.Data()), 0,
-          terminal_reset_state.size);
-    } else {
-      std::memcpy(static_cast<uint8_t*>(terminal_reset_state.Data()),
-                  terminal_reset_obs, terminal_reset_state.size);
     }
     // info
     double zero = 0.0;
@@ -489,14 +479,24 @@ class VizdoomEnv : public Env<VizdoomEnvSpec> {
     return state;
   }
 
-  void WriteTerminalResetObs(State& state) {
-    auto terminal_reset_state = state["info:terminal_reset_obs"_];
-    auto* ptr = static_cast<uint8_t*>(terminal_reset_state.Data());
+  void WriteTerminalResetObs() {
+    auto* ptr = static_cast<uint8_t*>(terminal_reset_obs_.Data());
     for (int i = 0; i < stack_num_; ++i) {
       std::memcpy(ptr + i * stack_buf_[i].size,
                   static_cast<uint8_t*>(stack_buf_[i].Data()),
                   stack_buf_[i].size);
     }
+  }
+
+  const std::vector<std::size_t>& TerminalResetObsShape() const {
+    return terminal_reset_obs_.Shape();
+  }
+
+  std::size_t TerminalResetObsSize() const { return terminal_reset_obs_.size; }
+
+  void CopyTerminalResetObsTo(uint8_t* dst) const {
+    std::memcpy(dst, static_cast<uint8_t*>(terminal_reset_obs_.Data()),
+                terminal_reset_obs_.size);
   }
 
   void BeginResetTransition() {

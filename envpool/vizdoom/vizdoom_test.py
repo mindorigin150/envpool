@@ -162,8 +162,10 @@ class _VizdoomEnvPoolBasicTest(absltest.TestCase):
     _, _, terminated, truncated, info = env.step(action)
     done = np.logical_or(terminated, truncated)
     assert bool(done[0])
-    np.testing.assert_equal(info["terminal_reset_obs"].shape, obs.shape)
-    assert np.any(info["terminal_reset_obs"][0] != 0)
+    assert "terminal_reset_obs" not in info
+    terminal_reset_obs = env._terminal_reset_obs(np.array([0], dtype=np.int32))
+    np.testing.assert_equal(terminal_reset_obs.shape, obs.shape)
+    assert np.any(terminal_reset_obs[0] != 0)
 
     _, _, next_terminated, next_truncated, next_info = env.step(action)
     next_done = np.logical_or(next_terminated, next_truncated)
